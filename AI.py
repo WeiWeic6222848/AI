@@ -29,7 +29,7 @@ df['session_id'] = pd.factorize(
 # test train split
 # first, randomly take 10% of the sessions out from the dataset as a way to vary the data to create a different testing situation each run
 sessionRange = df['session_id'].max()
-numToRemove = random.sample(range(0, sessionRange), sessionRange // 10)
+numToRemove = random.sample(range(0, sessionRange), int(sessionRange * 0.5))
 
 # remove the session with given id from the dataset
 df = df.loc[~df['session_id'].isin(numToRemove)]
@@ -91,7 +91,7 @@ train_session_matrix = sparse.csr_matrix(
 idx = test_session.groupby('session_id')['timestamp'].transform('max') == \
       test_session['timestamp']
 test_timestamp = test_session[idx]
-test_timestamp = test_timestamp.drop_duplicates(subset = ['session_id'])
+test_timestamp = test_timestamp.drop_duplicates(subset=['session_id'])
 
 test_timestamp_matrix = sparse.csr_matrix(
     (test_timestamp['timestamp'],
@@ -103,12 +103,12 @@ test_timestamp_matrix = sparse.csr_matrix(
 idx = train_session.groupby('session_id')['timestamp'].transform('max') == \
       train_session['timestamp']
 train_timestamp = train_session[idx]
-train_timestamp = train_timestamp.drop_duplicates(subset = ['session_id'])
+train_timestamp = train_timestamp.drop_duplicates(subset=['session_id'])
 
 train_timestamp_matrix = sparse.csr_matrix(
     (train_timestamp['timestamp'],
      (train_timestamp['session_id'],
-         [0 for _ in range(len(train_timestamp))])),
+      [0 for _ in range(len(train_timestamp))])),
     shape=(train_timestamp['session_id'].max() + 1,
            1))
 
@@ -138,93 +138,130 @@ test_session_matrix, test_timestamp_matrix, test_predict = split_seq(
 
 models = [
     # Popularity().fit(train_session_matrix),
-    STAN(factor1=True, l1 = 1,
-                 factor2=True, l2=365 * 24 * 3600, factor3=True, l3 = 2).fit(train_session_matrix, train_timestamp_matrix),
-    STANOLD([i for i in range(train_session_matrix.get_shape()[0])],
-            matrix_to_list(train_session_matrix),
-            train_timestamp_matrix.transpose().toarray().tolist()[0], factor1=True, l1 = 1,
-                 factor2=True, l2=365 * 24 * 3600, factor3=True, l3 = 2)
+    STAN(factor1=True, l1=1,
+         factor2=True, l2=365 * 24 * 3600, factor3=True, l3=2).fit(
+        train_session_matrix, train_timestamp_matrix),
+    # STANOLD([i for i in range(train_session_matrix.get_shape()[0])],
+    #         matrix_to_list(train_session_matrix),
+    #         train_timestamp_matrix.transpose().toarray().tolist()[0], factor1=True, l1 = 1,
+    #              factor2=True, l2=365 * 24 * 3600, factor3=True, l3 = 2)
 ]
 
+grid1 = np.arange(1, 10, 1)
+grid2 = np.arange(100 * 24 * 3600, 1000 * 24 * 3600, 100 * 24 * 3600)
+grid3 = np.arange(1, 10, 1)
 # Calcultae metrics Recall, MRR and NDCG for each model
+max_score = 0
+max_param = None
+f = open('output.txt', 'w')
+f.write(str((0, 0, 0)))
+f.close()
+
+
+def metric(x):
+    return x[0] * 4 + x[1] * 2 + x[2]
+
+
 for model in models:
-    print("MODEL = ", model)
-    testing_size = test_session_matrix.get_shape()[0]
-    # testing_size = 10
+    for l1 in grid1:
+        for l2 in grid2:
+            for l3 in grid3:
+                model.l1 = l1
+                model.l2 = l2
+                model.l3 = l3
+                print("MODEL = ", model)
+                testing_size = test_session_matrix.get_shape()[0]
+                # testing_size = 10
 
-    R_5 = 0
-    R_10 = 0
-    R_20 = 0
+                R_5 = 0
+                R_10 = 0
+                R_20 = 0
 
-    MRR_5 = 0
-    MRR_10 = 0
-    MRR_20 = 0
+                MRR_5 = 0
+                MRR_10 = 0
+                MRR_20 = 0
 
-    NDCG_5 = 0
-    NDCG_10 = 0
-    NDCG_20 = 0
+                NDCG_5 = 0
+                NDCG_10 = 0
+                NDCG_20 = 0
 
-    predictions = model.predict(test_session_matrix, test_timestamp_matrix)
-    for i in range(testing_size):
+                predictions = model.predict(test_session_matrix,
+                                            test_timestamp_matrix)
+                for i in range(testing_size):
 
-        # for s in score:
-        #     print(s)
-        # print(test_predict[i])
-        # print("-----------------------------------")
-        # print("-----------------------------------")
-        items = predictions[i][0]
-        # if len(items) == 0:
-        #     print("!!!")
-        if test_predict[i] in items:
-            rank = int(np.where(items == test_predict[i])[0]) + 1
-            # print(rank)
-            MRR_20 += 1 / rank
-            R_20 += 1
-            NDCG_20 += 1 / math.log(rank + 1, 2)
+                    # for s in score:
+                    #     print(s)
+                    # print(test_predict[i])
+                    # print("-----------------------------------")
+                    # print("-----------------------------------")
+                    items = predictions[i][0]
+                    # if len(items) == 0:
+                    #     print("!!!")
+                    if test_predict[i] in items:
+                        rank = int(np.where(items == test_predict[i])[0]) + 1
+                        # print(rank)
+                        MRR_20 += 1 / rank
+                        R_20 += 1
+                        NDCG_20 += 1 / math.log(rank + 1, 2)
 
-            if rank <= 5:
-                MRR_5 += 1 / rank
-                R_5 += 1
-                NDCG_5 += 1 / math.log(rank + 1, 2)
+                        if rank <= 5:
+                            MRR_5 += 1 / rank
+                            R_5 += 1
+                            NDCG_5 += 1 / math.log(rank + 1, 2)
 
-            if rank <= 10:
-                MRR_10 += 1 / rank
-                R_10 += 1
-                NDCG_10 += 1 / math.log(rank + 1, 2)
+                        if rank <= 10:
+                            MRR_10 += 1 / rank
+                            R_10 += 1
+                            NDCG_10 += 1 / math.log(rank + 1, 2)
 
-                # print("past recipes:")
-                # for r in test_session[i]:
-                #     print(recipe[recipe['id'] == r]['name'].tolist()[0],
-                #           end=",\n")
-                # print("\n")
-                # print("recommended recipes:")
-                # for r in items:
-                #     print(recipe[recipe['id'] == r]['name'].tolist()[0],
-                #           end=",\n")
-                # print("\n")
-                # print("actual next recipe:")
-                # print(recipe[recipe['id'] == test_predict[i]]['name'].tolist()[
-                #           0])
-                # print("\n\n\n\n\n")
+                            # print("past recipes:")
+                            # for r in test_session[i]:
+                            #     print(recipe[recipe['id'] == r]['name'].tolist()[0],
+                            #           end=",\n")
+                            # print("\n")
+                            # print("recommended recipes:")
+                            # for r in items:
+                            #     print(recipe[recipe['id'] == r]['name'].tolist()[0],
+                            #           end=",\n")
+                            # print("\n")
+                            # print("actual next recipe:")
+                            # print(recipe[recipe['id'] == test_predict[i]]['name'].tolist()[
+                            #           0])
+                            # print("\n\n\n\n\n")
 
-    MRR_5 = MRR_5 / testing_size
-    MRR_10 = MRR_10 / testing_size
-    MRR_20 = MRR_20 / testing_size
-    R_5 = R_5 / testing_size
-    R_10 = R_10 / testing_size
-    R_20 = R_20 / testing_size
-    NDCG_5 = NDCG_5 / testing_size
-    NDCG_10 = NDCG_10 / testing_size
-    NDCG_20 = NDCG_20 / testing_size
+                MRR_5 = MRR_5 / testing_size
+                MRR_10 = MRR_10 / testing_size
+                MRR_20 = MRR_20 / testing_size
+                R_5 = R_5 / testing_size
+                R_10 = R_10 / testing_size
+                R_20 = R_20 / testing_size
+                NDCG_5 = NDCG_5 / testing_size
+                NDCG_10 = NDCG_10 / testing_size
+                NDCG_20 = NDCG_20 / testing_size
 
-    print("MRR@5: %f" % MRR_5)
-    print("MRR@10: %f" % MRR_10)
-    print("MRR@20: %f" % MRR_20)
-    print("R@5: %f" % R_5)
-    print("R@10: %f" % R_10)
-    print("R@20: %f" % R_20)
-    print("NDCG@5: %f" % NDCG_5)
-    print("NDCG@10: %f" % NDCG_10)
-    print("NDCG@20: %f" % NDCG_20)
-    print("training size: %d" % train_session_matrix.get_shape()[0])
-    print("testing size: %d" % test_session_matrix.get_shape()[0])
+                print("MRR@5: %f" % MRR_5)
+                print("MRR@10: %f" % MRR_10)
+                print("MRR@20: %f" % MRR_20)
+                print("R@5: %f" % R_5)
+                print("R@10: %f" % R_10)
+                print("R@20: %f" % R_20)
+                print("NDCG@5: %f" % NDCG_5)
+                print("NDCG@10: %f" % NDCG_10)
+                print("NDCG@20: %f" % NDCG_20)
+                print(
+                    "training size: %d" % train_session_matrix.get_shape()[0])
+                print("testing size: %d" % test_session_matrix.get_shape()[0])
+
+                score =metric((R_5,R_10,R_20))
+                if score > max_score:
+                    max_score = score
+                    max_param = (l1, l2, l3)
+                    print(max_param)
+                    f = open('output.txt', 'w')
+                    f.write(str(max_param))
+                    f.close()
+
+print(max_param)
+f = open('output.txt', 'w')
+f.write(str(max_param))
+f.close()
