@@ -2,6 +2,7 @@ import random
 
 import numpy as np
 
+from OLD import STANOLD, matrix_to_list
 from Recommenders import *
 import pandas
 import pandas as pd
@@ -10,7 +11,7 @@ import datetime
 # read the dataset
 df = pandas.read_csv(
     './RAW_interactions.csv').drop(
-    ['review'], axis=1)[:10000]
+    ['review'], axis=1)
 # recipe = pandas.read_csv(
 #    './RAW_recipes.csv')
 
@@ -33,10 +34,6 @@ numToRemove = random.sample(range(0, sessionRange), sessionRange // 10)
 # remove the session with given id from the dataset
 df = df.loc[~df['session_id'].isin(numToRemove)]
 
-
-
-
-
 # re-serialize the sesion id
 df = df.reset_index(drop=True)
 # df['session_id'] = pd.factorize(
@@ -58,8 +55,6 @@ test_session_id = df.groupby('session_id', as_index=False).max()
 test_session_id = test_session_id.nlargest(len(test_session_id) // 20,
                                            'timestamp')['session_id']
 
-
-
 # definitive split test and train
 test_session = df.loc[df['session_id'].isin(test_session_id)].reset_index(
     drop=True)
@@ -68,22 +63,26 @@ train_session = df.loc[~df['session_id'].isin(test_session_id)].reset_index(
 
 # reset session id
 test_session['session_id'] = pd.factorize(test_session['session_id'].values)[0]
-train_session['session_id'] = pd.factorize(train_session['session_id'].values)[0]
+train_session['session_id'] = pd.factorize(train_session['session_id'].values)[
+    0]
 
 # order by timestamp
 test_session = test_session.sort_values(by=['timestamp'])
 train_session = train_session.sort_values(by=['timestamp'])
+test_session['item_index'] = test_session.groupby('session_id').cumcount() + 1
+train_session['item_index'] = train_session.groupby(
+    'session_id').cumcount() + 1
 
 # convert to csr where row = session and column = item-to-sessions
-test_session_matrix = sparse.coo_matrix(
-    ([1 for _ in range(len(test_session['rating']))],
+test_session_matrix = sparse.csr_matrix(
+    (test_session['item_index'],
      (test_session['session_id'], test_session['recipe_id_serialized'])),
     shape=(test_session['session_id'].max() + 1,
            df['recipe_id_serialized'].max() + 1))
 # shape is max index + 1 to include zero index
 
-train_session_matrix = sparse.coo_matrix(
-    ([1 for _ in range(len(train_session['rating']))],
+train_session_matrix = sparse.csr_matrix(
+    (train_session['item_index'],
      (train_session['session_id'], train_session['recipe_id_serialized'])),
     shape=(train_session['session_id'].max() + 1,
            df['recipe_id_serialized'].max() + 1))
@@ -92,6 +91,7 @@ train_session_matrix = sparse.coo_matrix(
 idx = test_session.groupby('session_id')['timestamp'].transform('max') == \
       test_session['timestamp']
 test_timestamp = test_session[idx]
+test_timestamp = test_timestamp.drop_duplicates(subset = ['session_id'])
 
 test_timestamp_matrix = sparse.csr_matrix(
     (test_timestamp['timestamp'],
@@ -103,11 +103,11 @@ test_timestamp_matrix = sparse.csr_matrix(
 idx = train_session.groupby('session_id')['timestamp'].transform('max') == \
       train_session['timestamp']
 train_timestamp = train_session[idx]
+train_timestamp = train_timestamp.drop_duplicates(subset = ['session_id'])
 
 train_timestamp_matrix = sparse.csr_matrix(
     (train_timestamp['timestamp'],
-     (
-         train_timestamp['session_id'],
+     (train_timestamp['session_id'],
          [0 for _ in range(len(train_timestamp))])),
     shape=(train_timestamp['session_id'].max() + 1,
            1))
@@ -123,38 +123,14 @@ train_timestamp_matrix = sparse.csr_matrix(
 # STAN and Popularity recommender models
 
 def split_seq(session_item_matrix, timestamp_matrix):
-    new_coomatrix_input = np.empty((0, 3), dtype=int)
     preds = np.empty((0, 1), dtype=int)
-    time_matrix_input = np.empty((0, 3), dtype=int)
-    session_ids = 0
-    for row in session_item_matrix.nonzero()[0]:
-        sequence_information = session_item_matrix.col[
-            session_item_matrix.row == row]
-        while len(sequence_information) > 1:
-            for col in sequence_information[:-1]:
-                new_coomatrix_input = np.vstack([new_coomatrix_input, np.array(
-                    [session_item_matrix.getrow(row).getcol(col).data[0],
-                     session_ids, col])])
-            preds = np.vstack([preds, np.array([sequence_information[-1]])])
-
-            time_matrix_input = np.vstack([time_matrix_input, np.array([
-                timestamp_matrix.getrow(row).data[0],
-                session_ids, sequence_information[-1]])])
-
-            session_ids += 1
-            sequence_information = sequence_information[:-1]
-
-    new_coomatrix = sparse.coo_matrix((new_coomatrix_input[:, 0], (
-        new_coomatrix_input[:, 1], new_coomatrix_input[:, 2])), shape=(
-        int(new_coomatrix_input[:, 1].max() + 1),
-        session_item_matrix.get_shape()[1]))
-
-    new_timematrix = sparse.coo_matrix((time_matrix_input[:, 0], (
-        time_matrix_input[:, 1], [0 for _ in range(len(time_matrix_input))])),
-                                       shape=(
-                                           int(new_coomatrix_input[:,
-                                               1].max() + 1), 1))
-    return new_coomatrix, new_timematrix, preds
+    uniquerow = np.unique(session_item_matrix.nonzero()[0])
+    for row in uniquerow:
+        max_idx = session_item_matrix[row].argmax()
+        preds = np.append(preds, max_idx)
+        session_item_matrix[row, max_idx] = 0
+    session_item_matrix.eliminate_zeros()
+    return session_item_matrix, timestamp_matrix, preds
 
 
 test_session_matrix, test_timestamp_matrix, test_predict = split_seq(
@@ -162,13 +138,18 @@ test_session_matrix, test_timestamp_matrix, test_predict = split_seq(
 
 models = [
     # Popularity().fit(train_session_matrix),
-    STAN().fit(train_session_matrix, train_timestamp_matrix)
+    STAN(factor1=True, l1 = 1,
+                 factor2=True, l2=365 * 24 * 3600, factor3=True, l3 = 2).fit(train_session_matrix, train_timestamp_matrix),
+    STANOLD([i for i in range(train_session_matrix.get_shape()[0])],
+            matrix_to_list(train_session_matrix),
+            train_timestamp_matrix.transpose().toarray().tolist()[0], factor1=True, l1 = 1,
+                 factor2=True, l2=365 * 24 * 3600, factor3=True, l3 = 2)
 ]
 
 # Calcultae metrics Recall, MRR and NDCG for each model
 for model in models:
     print("MODEL = ", model)
-    testing_size = len(test_session)
+    testing_size = test_session_matrix.get_shape()[0]
     # testing_size = 10
 
     R_5 = 0
@@ -182,25 +163,20 @@ for model in models:
     NDCG_5 = 0
     NDCG_10 = 0
     NDCG_20 = 0
-    for i in range(testing_size):
-        if i % 1000 == 0:
-            print("%d/%d" % (i, testing_size))
-            # print("MRR@20: %f" % (MRR_20 / (i + 1)))
 
-        score = model.predict(
-            test_session_matrix.getrow(i), test_timestamp_matrix.getrow(i),
-            test_session_matrix.col[test_session_matrix.row == i]
-        )
+    predictions = model.predict(test_session_matrix, test_timestamp_matrix)
+    for i in range(testing_size):
+
         # for s in score:
         #     print(s)
         # print(test_predict[i])
         # print("-----------------------------------")
         # print("-----------------------------------")
-        items = [x[0] for x in score]
+        items = predictions[i][0]
         # if len(items) == 0:
         #     print("!!!")
         if test_predict[i] in items:
-            rank = items.index(test_predict[i]) + 1
+            rank = int(np.where(items == test_predict[i])[0]) + 1
             # print(rank)
             MRR_20 += 1 / rank
             R_20 += 1
@@ -250,5 +226,5 @@ for model in models:
     print("NDCG@5: %f" % NDCG_5)
     print("NDCG@10: %f" % NDCG_10)
     print("NDCG@20: %f" % NDCG_20)
-    print("training size: %d" % len(train_session))
-    print("testing size: %d" % testing_size)
+    print("training size: %d" % train_session_matrix.get_shape()[0])
+    print("testing size: %d" % test_session_matrix.get_shape()[0])

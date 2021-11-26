@@ -2,11 +2,19 @@ import math
 from collections import Counter
 
 import numpy
+import numpy as np
 import scipy
+import sklearn
 from sklearn.metrics.pairwise import cosine_similarity
 from scipy import sparse, spatial
-from scipy.sparse import hstack
-from _operator import itemgetter
+
+
+def max_n(row_data, row_indices, n):
+    i = row_data.argsort()[-n:]
+    # i = row_data.argpartition(-n)[-n:]
+    top_values = row_data[i]
+    top_indices = row_indices[i]  # do the sparse indices matter?
+    return top_values, top_indices
 
 
 # popularity recommender
@@ -58,105 +66,100 @@ class STAN:
         self.current_timestamp = 0
 
     def fit(self, session, session_timestamp):
-        self.session = session
+        self.sequence_info = session
+        self.session = session.copy()
+        self.session.data[self.session.data != 1] = 1
         self.session_timestamp = session_timestamp
         return self
 
-    def possible_neighbour_sessions(self, session_items):
-        # any session with at least one common item as the one in the testing session is considered as the possible neighbour.
-        # create a mapping of prediction sessions to possible neighboring sessions
-        neighbours = session_items * self.session.transpose()
-        neighbours.data[neighbours.data != 1] = 1  # set all value to 1
-        return neighbours
+    def find_neighbours(self):
+        similarity = sklearn.metrics.pairwise.cosine_similarity(
+            self.current_session_weight_cache,
+            self.session)
+        similarity = scipy.sparse.csr_matrix(similarity)
 
-    def find_neighbours(self, session_items):
-        # neighbour candidate
-        possible_neighbours = self.possible_neighbour_sessions(session_items)
-        # get top k according to similarity
-        possible_neighbours = self.cal_similarity(session_items,
-                                                  possible_neighbours)
+        similarityNorm = similarity.copy()
+        similarityNorm[similarityNorm.nonzero()] = 1
 
-        top_neighbors = (-possible_neighbours.data).argsort()[:self.kneighbor]
-        possible_neighbours.col = possible_neighbours.col[top_neighbors]
-        possible_neighbours.row = possible_neighbours.row[top_neighbors]
-        possible_neighbours.data = possible_neighbours.data[top_neighbors]
+        if self.factor2 is True:
+            timestampdata = scipy.sparse.hstack(
+                [self.session_timestamp for _ in range(
+                    self.current_timestamp.get_shape()[
+                        0])]).transpose().tocsr().multiply(
+                similarityNorm).tocsr()
+            timestampdata.eliminate_zeros()
+            nz = timestampdata.nonzero()
+            timestampdata[nz] -= self.current_timestamp[nz[0]].transpose()
+            timestampdata.data = numpy.exp(timestampdata.data / self.l2)
+            similarity = similarity.multiply(timestampdata)
 
-        return possible_neighbours
+        rows = np.unique(similarity.nonzero()[0])
+        for rowindex in rows:
+            row = similarity[rowindex]
+            nz = row.nonzero()
+            kneighbor, kneighborindex = max_n(similarity[rowindex, nz[1]].data,
+                                              nz[1], self.kneighbor)
+            not_top_k = [i for i in nz[1] if i not in kneighborindex]
+            # remove neighbors not in top-k
+            similarity[rowindex, not_top_k] = 0
 
-    # calculate similarity between target session and possible neighbors
-    def cal_similarity(self, session_items, session_to_neighbors_matrix):
-
-        for session_to_neighbor in session_to_neighbors_matrix:
-            neighbour_session_items = self.session.multiply(session_to_neighbor.transpose())
-            similarity = self.cosine_similarity(neighbour_session_items,
-                                                session_items)
-            if self.factor2 is True:
-                similarity = similarity.multiply(numpy.exp(
-                    (self.session_timestamp.data - self.current_timestamp) / self.l2))
-
-            return similarity
-
-    # cosine similarity of neighbor sessions against one current session
-    def cosine_similarity(self, s1, s2):
-        similarity = self.current_session_weight_cache * s1.transpose()
-        sessions = list(s1.nonzero())
-        sessions_length = Counter(sessions[0]).most_common()
-        for col, length in sessions_length:
-            similarity[0, col] /= math.sqrt(length * len(s2.data))
+        similarity.eliminate_zeros()
         return similarity
 
     # scoring item according to their session
-    def score_items(self, neighbours, current_session, sequence_information):
-        scores = {}
-        sessions = self.session.multiply(neighbours.transpose())
-        neighbours = neighbours.tocsc()
+    def score_items(self, neighbours):
+        neighbours_normalized = neighbours.copy()
+        neighbours_normalized[neighbours_normalized.nonzero()] = 1
 
-        for session in sessions.nonzero()[0]:
-            items = self.session.col[self.session.row == session]
-            common_items_idx = numpy.nonzero(numpy.in1d(items, sequence_information))[-1][0]
-            similarity = neighbours.getcol(session).data[0]
-            for idx, item in enumerate(items):
-                old_score = scores.get(item)
-                if self.factor3 is True:
-                    new_score = math.exp(
-                        -math.fabs(idx - common_items_idx) / self.l3) * \
-                               similarity
-                else:
-                    new_score = similarity
+        for session_idx, neighbour_session_map in enumerate(
+                neighbours_normalized):
 
-                if old_score is None:
-                    scores.update({item: new_score})
-                else:
-                    new_score += old_score
-                    scores.update({item: new_score})
-        return scores
+            if self.factor3 is True:
+                neighbour_session = self.sequence_info.multiply(
+                    neighbour_session_map.transpose())
 
-    def predict(self, session_items, session_timestamp, sequence_information,
-                k=20):
+                common_items = self.current_session[session_idx].multiply(neighbour_session.copy()).max(axis=1).tocsr()
+
+                nz = neighbour_session.nonzero()
+                neighbour_session[nz] -= common_items[nz[0]].transpose()
+                neighbour_session.eliminate_zeros()
+                neighbour_session.data = numpy.exp(
+                    - np.abs(neighbour_session.data) / self.l3)
+                neighbour_session = neighbour_session.multiply(
+                    neighbours[session_idx].transpose())
+            else:
+                neighbour_session = self.session.multiply(
+                    neighbours[session_idx].transpose())
+
+            item_score = neighbour_session.sum(0).A1
+
+            top_k_item = np.argpartition(item_score, -self.k)[-self.k:]
+            top_k_item = top_k_item[np.argsort(-item_score[top_k_item])]
+            top_k_value = item_score[top_k_item]
+
+            yield (top_k_item, top_k_value)
+            continue
+
+    def predict(self, session_items, session_timestamp):
         # initialize
-        self.current_session_weight_cache = scipy.sparse.csr_matrix(session_items.get_shape())
+        normalized = session_items.copy()
+        normalized.data[normalized.data != 1] = 1
+        self.current_session_sequence = session_items
+        self.current_session = normalized
 
-        sessions = list(session_items.nonzero())
-        sessions_length = Counter(sessions[0]).most_common()
+        session_length = session_items.max(axis=1).tocsr()
+        session_items_cp = session_items.copy()
 
-        for row, length in sessions_length:
-            cols = session_items.getrow(row).nonzero()[1]
-            for idx, col in enumerate(cols):
-                if self.factor1 is True:
-                    weight = math.exp((idx + 1 - length) / self.l1)
-                else:
-                    weight = 1
-                # if there is several identical items in one session, choose the biggest weight as the item's weight
-                if self.current_session_weight_cache[row, col] != 0:
-                    self.current_session_weight_cache[row, col] = max(weight, self.current_session_weight_cache[row, col])
-                else:
-                    self.current_session_weight_cache[row, col] = weight
+        if self.factor1 is True:
+            nz = normalized.nonzero()
+            session_items_cp[nz] -= session_length[nz[0]].transpose()
+            session_items_cp.data = numpy.exp(session_items_cp.data / self.l1)
+            self.current_session_weight_cache = session_items_cp
+        else:
+            self.current_session_weight_cache = normalized
 
-        self.current_timestamp = session_timestamp.data[0]
+        self.current_timestamp = session_timestamp
 
-        neighbours = self.find_neighbours(session_items)
-        scores = self.score_items(neighbours, session_items,
-                                  sequence_information)
-        scores_sorted_list = sorted(scores.items(), key=lambda x: x[1],
-                                    reverse=True)[:k]
-        return scores_sorted_list
+        neighbours = self.find_neighbours()
+        scores = list(self.score_items(neighbours))
+        return scores
