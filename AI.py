@@ -29,7 +29,7 @@ df['session_id'] = pd.factorize(
 # test train split
 # first, randomly take 10% of the sessions out from the dataset as a way to vary the data to create a different testing situation each run
 sessionRange = df['session_id'].max()
-numToRemove = random.sample(range(0, sessionRange), int(sessionRange * 0.5))
+numToRemove = random.sample(range(0, sessionRange), int(sessionRange * 0.1))
 
 # remove the session with given id from the dataset
 df = df.loc[~df['session_id'].isin(numToRemove)]
@@ -147,9 +147,9 @@ models = [
     #              factor2=True, l2=365 * 24 * 3600, factor3=True, l3 = 2)
 ]
 
-grid1 = np.arange(1, 10, 1)
-grid2 = np.arange(100 * 24 * 3600, 1000 * 24 * 3600, 100 * 24 * 3600)
-grid3 = np.arange(1, 10, 1)
+grid1 = np.arange(6, 7, 1)
+grid2 = np.arange(6000 * 24 * 3600, 6001 * 24 * 3600, 100 * 24 * 3600)
+grid3 = np.arange(6, 7, 1)
 # Calcultae metrics Recall, MRR and NDCG for each model
 max_score = 0
 max_param = None

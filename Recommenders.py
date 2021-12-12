@@ -90,7 +90,12 @@ class STAN:
             timestampdata.eliminate_zeros()
             nz = timestampdata.nonzero()
             timestampdata[nz] -= self.current_timestamp[nz[0]].transpose()
-            timestampdata.data = numpy.exp(timestampdata.data / self.l2)
+
+            # difference with original algorithm:
+            # instead of plain subtraction, also take a abs value then negate all
+            # to avoid positive numbers which ruins the weight process.
+
+            timestampdata.data = numpy.exp( - numpy.abs(timestampdata.data) / self.l2)
             similarity = similarity.multiply(timestampdata)
 
         rows = np.unique(similarity.nonzero()[0])
@@ -118,7 +123,15 @@ class STAN:
                 neighbour_session = self.sequence_info.multiply(
                     neighbour_session_map.transpose())
 
-                common_items = self.current_session[session_idx].multiply(neighbour_session.copy()).max(axis=1).tocsr()
+                common_items = self.current_session[session_idx].multiply(
+                    neighbour_session)
+
+                # set items score of item present in the current session
+                nz = common_items.nonzero()
+                neighbour_session[nz] = 0
+
+
+                common_items = common_items.max(axis=1).tocsr()
 
                 nz = neighbour_session.nonzero()
                 neighbour_session[nz] -= common_items[nz[0]].transpose()
@@ -130,6 +143,7 @@ class STAN:
             else:
                 neighbour_session = self.session.multiply(
                     neighbours[session_idx].transpose())
+
 
             item_score = neighbour_session.sum(0).A1
 
