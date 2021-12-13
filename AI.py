@@ -159,7 +159,7 @@ f.close()
 
 
 def metric(x):
-    return x[0] * 4 + x[1] * 2 + x[2]
+    return x[0] * 100 + x[1] * 1 + x[2] * 0,1
 
 
 for model in models:
