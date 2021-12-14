@@ -6,7 +6,7 @@ import numpy as np
 import scipy
 import sklearn
 from sklearn.metrics.pairwise import cosine_similarity
-from scipy import sparse, spatial
+from scipy import sparse
 
 
 def max_n(row_data, row_indices, n):
@@ -26,10 +26,9 @@ class Popularity():
         # X = X.multiply(X >= 3)  # look only at items with rating more than 3
         items = list(X.nonzero()[1])
         sorted_scores = Counter(items).most_common()
-        self.sorted_scores_ = [
-            (item, score / sorted_scores[0][1]) for item, score in
-            sorted_scores
-        ]
+        self.sorted_scores_ = \
+            [(item, score / sorted_scores[0][1]) for item, score in
+             sorted_scores]
         return self
 
     def predict(self, X):
@@ -47,6 +46,8 @@ class Popularity():
         score_matrix = scipy.sparse.csr_matrix((V, (U, I)), shape=X.shape)
         return score_matrix
 
+    def tostring(self):
+        return "Popularity"
 
 class STAN:
     def __init__(self, k=20, sample_size=0,
@@ -95,7 +96,8 @@ class STAN:
             # instead of plain subtraction, also take a abs value then negate all
             # to avoid positive numbers which ruins the weight process.
 
-            timestampdata.data = numpy.exp( - numpy.abs(timestampdata.data) / self.l2)
+            timestampdata.data = numpy.exp(
+                - numpy.abs(timestampdata.data) / self.l2)
             similarity = similarity.multiply(timestampdata)
 
         rows = np.unique(similarity.nonzero()[0])
@@ -130,7 +132,6 @@ class STAN:
                 nz = common_items.nonzero()
                 neighbour_session[nz] = 0
 
-
                 common_items = common_items.max(axis=1).tocsr()
 
                 nz = neighbour_session.nonzero()
@@ -143,7 +144,6 @@ class STAN:
             else:
                 neighbour_session = self.session.multiply(
                     neighbours[session_idx].transpose())
-
 
             item_score = neighbour_session.sum(0).A1
 
@@ -177,3 +177,6 @@ class STAN:
         neighbours = self.find_neighbours()
         scores = list(self.score_items(neighbours))
         return scores
+
+    def tostring(self):
+        return f"STAN with hyperparameters l1={self.l1}, l2={self.l2}, l3 = {self.l3}"

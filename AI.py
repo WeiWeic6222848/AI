@@ -65,11 +65,16 @@ def readCsv(fold):
     return df, dftest, recipe_map
 
 
+foldsStatistics = []
+
 # read the dataset
 for fold in os.listdir('folds'):
 
+    if fold == "fold_2":
+        break
+
     print(f"Testing for {fold}")
-    train_session, test_session,recipe_map = readCsv(fold)
+    train_session, test_session, recipe_map = readCsv(fold)
 
     # convert to csr where row = session and column = item-to-sessions
     test_session_matrix = sparse.csr_matrix(
@@ -110,6 +115,7 @@ for fold in os.listdir('folds'):
         shape=(train_timestamp['session_id'].max() + 1,
                1))
 
+
     def split_seq(session_item_matrix, timestamp_matrix):
         preds = np.empty((0, 1), dtype=int)
         uniquerow = np.unique(session_item_matrix.nonzero()[0])
@@ -126,8 +132,8 @@ for fold in os.listdir('folds'):
 
     models = [
         # Popularity().fit(train_session_matrix),
-        STAN(factor1=True, l1=1,
-             factor2=True, l2=365 * 24 * 3600, factor3=True, l3=2).fit(
+        STAN(factor1=True, l1=6,
+             factor2=True, l2=6000 * 365 * 24 * 3600, factor3=True, l3=6).fit(
             train_session_matrix, train_timestamp_matrix),
         # STANOLD([i for i in range(train_session_matrix.get_shape()[0])],
         #         matrix_to_list(train_session_matrix),
@@ -135,124 +141,81 @@ for fold in os.listdir('folds'):
         #              factor2=True, l2=365 * 24 * 3600, factor3=True, l3 = 2)
     ]
 
-    grid1 = np.arange(6, 7, 1)
-    grid2 = np.arange(6000 * 24 * 3600, 6001 * 24 * 3600, 100 * 24 * 3600)
-    grid3 = np.arange(6, 7, 1)
     # Calcultae metrics Recall, MRR and NDCG for each model
-    max_score = 0
-    max_param = None
-    f = open('output.txt', 'w')
-    f.write(str((0, 0, 0)))
-    f.close()
-
-
-    def metric(x):
-        return x[0] * 100 + x[1] * 1 + x[2] * 0.1
-
-
     for model in models:
-        for l1 in grid1:
-            for l2 in grid2:
-                for l3 in grid3:
-                    model.l1 = l1
-                    model.l2 = l2
-                    model.l3 = l3
-                    print("MODEL = ", model)
-                    testing_size = test_session_matrix.get_shape()[0]
-                    # testing_size = 10
+        print("MODEL = ", model.tostring())
+        testing_size = test_session_matrix.get_shape()[0]
+        # testing_size = 10
 
-                    R_5 = 0
-                    R_10 = 0
-                    R_20 = 0
+        R_5 = 0
+        R_10 = 0
+        R_20 = 0
 
-                    MRR_5 = 0
-                    MRR_10 = 0
-                    MRR_20 = 0
+        NDCG_5 = 0
+        NDCG_10 = 0
+        NDCG_20 = 0
 
-                    NDCG_5 = 0
-                    NDCG_10 = 0
-                    NDCG_20 = 0
+        predictions = model.predict(test_session_matrix,
+                                    test_timestamp_matrix)
+        for i in range(testing_size):
 
-                    predictions = model.predict(test_session_matrix,
-                                                test_timestamp_matrix)
-                    for i in range(testing_size):
+            # for s in score:
+            #     print(s)
+            # print(test_predict[i])
+            # print("-----------------------------------")
+            # print("-----------------------------------")
+            items = predictions[i][0]
+            # if len(items) == 0:
+            #     print("!!!")
+            if test_predict[i] in items:
+                rank = int(
+                    np.where(items == test_predict[i])[0]) + 1
+                # print(rank)
+                R_20 += 1
+                NDCG_20 += 1 / math.log(rank + 1, 2)
 
-                        # for s in score:
-                        #     print(s)
-                        # print(test_predict[i])
-                        # print("-----------------------------------")
-                        # print("-----------------------------------")
-                        items = predictions[i][0]
-                        # if len(items) == 0:
-                        #     print("!!!")
-                        if test_predict[i] in items:
-                            rank = int(
-                                np.where(items == test_predict[i])[0]) + 1
-                            # print(rank)
-                            MRR_20 += 1 / rank
-                            R_20 += 1
-                            NDCG_20 += 1 / math.log(rank + 1, 2)
+                if rank <= 5:
+                    R_5 += 1
+                    NDCG_5 += 1 / math.log(rank + 1, 2)
 
-                            if rank <= 5:
-                                MRR_5 += 1 / rank
-                                R_5 += 1
-                                NDCG_5 += 1 / math.log(rank + 1, 2)
+                if rank <= 10:
+                    R_10 += 1
+                    NDCG_10 += 1 / math.log(rank + 1, 2)
 
-                            if rank <= 10:
-                                MRR_10 += 1 / rank
-                                R_10 += 1
-                                NDCG_10 += 1 / math.log(rank + 1, 2)
+        R_5 = R_5 / testing_size
+        R_10 = R_10 / testing_size
+        R_20 = R_20 / testing_size
+        NDCG_5 = NDCG_5 / testing_size
+        NDCG_10 = NDCG_10 / testing_size
+        NDCG_20 = NDCG_20 / testing_size
 
-                                # print("past recipes:")
-                                # for r in test_session[i]:
-                                #     print(recipe[recipe['id'] == r]['name'].tolist()[0],
-                                #           end=",\n")
-                                # print("\n")
-                                # print("recommended recipes:")
-                                # for r in items:
-                                #     print(recipe[recipe['id'] == r]['name'].tolist()[0],
-                                #           end=",\n")
-                                # print("\n")
-                                # print("actual next recipe:")
-                                # print(recipe[recipe['id'] == test_predict[i]]['name'].tolist()[
-                                #           0])
-                                # print("\n\n\n\n\n")
+        print("R@5: %f" % R_5)
+        print("R@10: %f" % R_10)
+        print("R@20: %f" % R_20)
+        print("NDCG@5: %f" % NDCG_5)
+        print("NDCG@10: %f" % NDCG_10)
+        print("NDCG@20: %f" % NDCG_20)
+        print(
+            "training size: %d" % train_session_matrix.get_shape()[
+                0])
+        print("testing size: %d" % test_session_matrix.get_shape()[
+            0])
 
-                    MRR_5 = MRR_5 / testing_size
-                    MRR_10 = MRR_10 / testing_size
-                    MRR_20 = MRR_20 / testing_size
-                    R_5 = R_5 / testing_size
-                    R_10 = R_10 / testing_size
-                    R_20 = R_20 / testing_size
-                    NDCG_5 = NDCG_5 / testing_size
-                    NDCG_10 = NDCG_10 / testing_size
-                    NDCG_20 = NDCG_20 / testing_size
+        stats = {
+            "R@5": R_5,
+            "R@10": R_10,
+            "R@20": R_20,
+            "NDCG@5": NDCG_5,
+            "NDCG@10": NDCG_10,
+            "NDCG@20": NDCG_20,
+        }
 
-                    print("MRR@5: %f" % MRR_5)
-                    print("MRR@10: %f" % MRR_10)
-                    print("MRR@20: %f" % MRR_20)
-                    print("R@5: %f" % R_5)
-                    print("R@10: %f" % R_10)
-                    print("R@20: %f" % R_20)
-                    print("NDCG@5: %f" % NDCG_5)
-                    print("NDCG@10: %f" % NDCG_10)
-                    print("NDCG@20: %f" % NDCG_20)
-                    print(
-                        "training size: %d" % train_session_matrix.get_shape()[
-                            0])
-                    print("testing size: %d" % test_session_matrix.get_shape()[
-                        0])
+        foldsStatistics.append(stats)
 
-                    score = metric((R_5, R_10, R_20))
-                    if score > max_score:
-                        max_score = score
-                        max_param = (l1, l2, l3)
-                        print(max_param)
-                        f = open('output.txt', 'w')
-                        f.write(str(max_param))
-                        f.close()
-
-    print(max_param)
-    f = open('output.txt', 'w')
-    f.write(str(max_param))
-    f.close()
+print(foldsStatistics)
+finalstats = []
+for key in foldsStatistics[0].keys():
+    statsList = list(map(lambda x: x[key], foldsStatistics))
+    mean = np.mean(statsList)
+    std = np.std(statsList)
+    print(f"{key} stats: mean = {mean}, std = {std}")
