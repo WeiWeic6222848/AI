@@ -65,13 +65,24 @@ def readCsv(fold):
     return df, dftest, recipe_map
 
 
-foldsStatistics = []
+
+base_models = [
+    # Popularity().fit(train_session_matrix),
+    STAN(factor1=True, l1=6,
+         factor2=True, l2=6000 * 365 * 24 * 3600, factor3=True, l3=6),
+    STANOLD(factor1=True, l1=6,
+            factor2=True, l2=6000 * 365 * 24 * 3600, factor3=True, l3=6)
+]
+
+stats_dict = {}
+for model in base_models:
+    stats_dict[model.tostring()] = []
 
 # read the dataset
 for fold in os.listdir('folds'):
 
-    if fold == "fold_2":
-        break
+    #if fold == "fold_2":
+    #    break
 
     print(f"Testing for {fold}")
     train_session, test_session, recipe_map = readCsv(fold)
@@ -130,19 +141,10 @@ for fold in os.listdir('folds'):
     test_session_matrix, test_timestamp_matrix, test_predict = split_seq(
         test_session_matrix, test_timestamp_matrix)
 
-    models = [
-        # Popularity().fit(train_session_matrix),
-        STAN(factor1=True, l1=6,
-             factor2=True, l2=6000 * 365 * 24 * 3600, factor3=True, l3=6).fit(
-            train_session_matrix, train_timestamp_matrix),
-        # STANOLD([i for i in range(train_session_matrix.get_shape()[0])],
-        #         matrix_to_list(train_session_matrix),
-        #         train_timestamp_matrix.transpose().toarray().tolist()[0], factor1=True, l1 = 1,
-        #              factor2=True, l2=365 * 24 * 3600, factor3=True, l3 = 2)
-    ]
-
     # Calcultae metrics Recall, MRR and NDCG for each model
-    for model in models:
+    for model in base_models:
+        model.fit(train_session_matrix,train_timestamp_matrix)
+
         print("MODEL = ", model.tostring())
         testing_size = test_session_matrix.get_shape()[0]
         # testing_size = 10
@@ -210,12 +212,14 @@ for fold in os.listdir('folds'):
             "NDCG@20": NDCG_20,
         }
 
-        foldsStatistics.append(stats)
+        stats_dict[model.tostring()].append(stats)
 
-print(foldsStatistics)
+print(stats_dict)
 finalstats = []
-for key in foldsStatistics[0].keys():
-    statsList = list(map(lambda x: x[key], foldsStatistics))
-    mean = np.mean(statsList)
-    std = np.std(statsList)
-    print(f"{key} stats: mean = {mean}, std = {std}")
+for model in base_models:
+    print(f"final statistic for model {model.tostring()}")
+    for key in stats_dict[model.tostring()][0].keys():
+        statsList = list(map(lambda x: x[key], stats_dict[model.tostring()]))
+        mean = np.mean(statsList)
+        std = np.std(statsList)
+        print(f"{key} stats: mean = {mean}, std = {std}")

@@ -3,6 +3,7 @@ from _operator import itemgetter
 
 import numpy as np
 
+
 def matrix_to_list(matrix):
     result = []
     for row in matrix:
@@ -12,21 +13,29 @@ def matrix_to_list(matrix):
         result.append(list(items))
     return result
 
+
 class STANOLD:
-    def __init__(self, session_id, session, session_timestamp, sample_size=0,
+    def __init__(self, sample_size=0,
                  k=500, factor1=True, l1=3.54,
                  factor2=True, l2=20 * 24 * 3600, factor3=True, l3=3.54):
         self.k = k
         self.sample_size = sample_size
-        self.session_all = session
-        self.session_id_all = session_id
-        self.session_timestamp_all = session_timestamp
         self.factor1 = factor1
         self.factor2 = factor2
         self.factor3 = factor3
         self.l1 = l1
         self.l2 = l2
         self.l3 = l3
+
+
+    def fit(self, session, session_timestamp):
+
+        session_id = [i for i in range(session.get_shape()[0])]
+        session = matrix_to_list(session)
+        session_timestamp = session_timestamp.transpose().toarray().tolist()[0]
+        self.session_all = session
+        self.session_id_all = session_id
+        self.session_timestamp_all = session_timestamp
 
         # cache
         self.session_timestamp_cache = {}  # session_id: timestamp
@@ -192,10 +201,13 @@ class STANOLD:
         results = []
         for idx, session in enumerate(session_items):
             timestamp = session_timestamp[idx]
-            result = self.predict_one([],session,timestamp)
+            result = self.predict_one([], session, timestamp)
             if len(result) != 0:
                 results.append(list(zip(*result)))
             else:
-                results.append([(),()])
+                results.append([(), ()])
 
         return results
+
+    def tostring(self):
+        return f"STAN_OLD with hyperparameters l1={self.l1}, l2={self.l2}, l3 = {self.l3}"
