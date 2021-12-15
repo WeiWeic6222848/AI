@@ -7,10 +7,14 @@ import numpy as np
 def matrix_to_list(matrix):
     result = []
     for row in matrix:
-        items = row[row.nonzero()].A1
-        items = np.argsort(items)
-        items = row.nonzero()[1][items]
-        result.append(list(items))
+        items = row[row.nonzero()]
+        if items.shape[1] > 0:
+            items = items.A1
+            items = np.argsort(items)
+            items = row.nonzero()[1][items]
+            result.append(list(items))
+        else:
+            result.append([])
     return result
 
 
@@ -26,7 +30,6 @@ class STANOLD:
         self.l1 = l1
         self.l2 = l2
         self.l3 = l3
-
 
     def fit(self, session, session_timestamp):
 
@@ -68,10 +71,9 @@ class STANOLD:
         self.current_session_weight_cache = {}
         self.current_timestamp = 0
 
-    def find_neighbours(self, session_items, input_item):
+    def find_neighbours(self, session_items):
         # neighbour candidate
-        possible_neighbours = self.possible_neighbour_sessions(session_items,
-                                                               input_item)
+        possible_neighbours = self.possible_neighbour_sessions(session_items)
         # get top k according to similarity
         possible_neighbours = self.cal_similarity(session_items,
                                                   possible_neighbours)
@@ -81,7 +83,7 @@ class STANOLD:
 
         return possible_neighbours
 
-    def possible_neighbour_sessions(self, session_items, input_item):
+    def possible_neighbour_sessions(self, session_items):
         # 只考虑含有testing session中的last item的session作为neighbour
         # if input_item in self.item_session_cache:
         #     return self.item_session_cache.get(input_item)
@@ -186,8 +188,7 @@ class STANOLD:
                 self.current_session_weight_cache.update({item: weight})
         self.current_timestamp = session_timestamp
 
-        last_item_id = session_items[-1]
-        neighbours = self.find_neighbours(set(session_items), last_item_id)
+        neighbours = self.find_neighbours(set(session_items))
 
         scores = self.score_items(neighbours, session_items)
 

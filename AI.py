@@ -10,6 +10,14 @@ import pandas as pd
 import datetime
 
 
+base_models = [
+    Popularity(),
+    STAN(factor1=True, l1=6,
+        factor2=True, l2=6000 * 365 * 24 * 3600, factor3=True, l3=6),
+    STANOLD(factor1=True, l1=6,
+            factor2=True, l2=6000 * 365 * 24 * 3600, factor3=True, l3=6)
+]
+
 # recipe = pandas.read_csv(
 #    './RAW_recipes.csv')
 
@@ -18,27 +26,26 @@ def readCsv(fold):
         f'./folds/{fold}/train.csv').drop(
         ['review'], axis=1)
     dftest = pandas.read_csv(
-        f'./folds/{fold}/test.csv').drop(
+        f'./folds/{fold}/validate.csv').drop(
         ['review'], axis=1)
 
     # get the year from year data
     df['rate_year'] = pandas.DatetimeIndex(df['date']).year
     dftest['rate_year'] = pandas.DatetimeIndex(dftest['date']).year
 
-    # session_id defined as user_id + rate_year and each session item contains recipes the user rated, filter out session length with only 1 rated recipe
-    df = df.groupby(['user_id', 'rate_year']).filter(
-        lambda x: len(x['recipe_id']) > 1)
-    dftest = dftest.groupby(['user_id', 'rate_year']).filter(
-        lambda x: len(x['recipe_id']) > 1)
+    # session_id defined as user_id + rate_year and each session item contains recipes the user rated,
+    # filter out session length with only 1 rated recipe
+    # df = df.groupby(['user_id', 'rate_year']).filter(
+    #     lambda x: len(x['recipe_id']) > 1)
+    # dftest = dftest.groupby(['user_id', 'rate_year']).filter(
+    #     lambda x: len(x['recipe_id']) > 1)
 
     # serialize session id to continous integer for matrix initialization
     df['session_id'] = pd.factorize(
-        pd._libs.lib.fast_zip([df['user_id'].values, df['rate_year'].values]))[
-        0]
+        pd._libs.lib.fast_zip([df['user_id'].values, df['rate_year'].values]))[0]
     dftest['session_id'] = pd.factorize(
         pd._libs.lib.fast_zip(
-            [dftest['user_id'].values, dftest['rate_year'].values]))[
-        0]
+            [dftest['user_id'].values, dftest['rate_year'].values]))[0]
 
     # we keep the map of recipe to retrieve the original recipe information to see if recommendation was good
     codes, recipe_map = pd.factorize(
@@ -65,14 +72,6 @@ def readCsv(fold):
     return df, dftest, recipe_map
 
 
-
-base_models = [
-    # Popularity().fit(train_session_matrix),
-    STAN(factor1=True, l1=6,
-         factor2=True, l2=6000 * 365 * 24 * 3600, factor3=True, l3=6),
-    STANOLD(factor1=True, l1=6,
-            factor2=True, l2=6000 * 365 * 24 * 3600, factor3=True, l3=6)
-]
 
 stats_dict = {}
 for model in base_models:

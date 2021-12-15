@@ -22,32 +22,28 @@ class Popularity():
     def __init__(self, K=20):
         self.K = K
 
-    def fit(self, X):
+    def fit(self, X, timestamp):
         # X = X.multiply(X >= 3)  # look only at items with rating more than 3
         items = list(X.nonzero()[1])
         sorted_scores = Counter(items).most_common()
         self.sorted_scores_ = \
-            [(item, score / sorted_scores[0][1]) for item, score in
+            [(item, score) for item, score in
              sorted_scores]
         return self
 
-    def predict(self, X):
+    def predict(self, X, timestamp):
         items, values = zip(*self.sorted_scores_[: self.K])
 
-        users = set(X.nonzero()[0])
+        predictions = []
 
-        U, I, V = [], [], []
+        for _ in range(X.shape[0]):
+            predictions.append((items, values))
 
-        for user in users:
-            U.extend([user] * self.K)
-            I.extend(items)
-            V.extend(values)
-
-        score_matrix = scipy.sparse.csr_matrix((V, (U, I)), shape=X.shape)
-        return score_matrix
+        return predictions
 
     def tostring(self):
         return "Popularity"
+
 
 class STAN:
     def __init__(self, k=20, sample_size=0,
@@ -65,12 +61,14 @@ class STAN:
 
         self.current_session_weight_cache = {}
         self.current_timestamp = 0
+        self.popularity = Popularity(k)
 
     def fit(self, session, session_timestamp):
-        self.sequence_info = session
+        self.sequence_info = session.copy()
         self.session = session.copy()
         self.session.data[self.session.data != 1] = 1
         self.session_timestamp = session_timestamp
+        self.popularity.fit(session,session_timestamp)
         return self
 
     def find_neighbours(self):
@@ -83,22 +81,31 @@ class STAN:
         similarityNorm[similarityNorm.nonzero()] = 1
 
         if self.factor2 is True:
-            timestampdata = scipy.sparse.hstack(
-                [self.session_timestamp for _ in range(
-                    self.current_timestamp.get_shape()[
-                        0])]).transpose().tocsr().multiply(
-                similarityNorm).tocsr()
-            timestampdata.eliminate_zeros()
-            nz = timestampdata.nonzero()
-            timestampdata[nz] -= self.current_timestamp[nz[0]].transpose()
+            # loop over each entry since otherwise it's too large
+            entry_predicting = 1
 
-            # difference with original algorithm:
-            # instead of plain subtraction, also take a abs value then negate all
-            # to avoid positive numbers which ruins the weight process.
+            timestampdata = self.session_timestamp.transpose().tocsr()
 
-            timestampdata.data = numpy.exp(
-                - numpy.abs(timestampdata.data) / self.l2)
-            similarity = similarity.multiply(timestampdata)
+            for i in range(0, self.current_session.shape[0], entry_predicting):
+                # last iteration where entry is less
+
+                timestampdatacopy = timestampdata.multiply(
+                    similarityNorm[i:i + entry_predicting]).tocsr()
+
+                timestampdatacopy.eliminate_zeros()
+                nz = timestampdatacopy.nonzero()
+                timestampdatacopy[nz] -= self.current_timestamp[
+                    nz[0] + i].transpose()
+
+                # difference with original algorithm:
+                # instead of plain subtraction, also take a abs value then negate all
+                # to avoid positive numbers which ruins the weight process.
+
+                timestampdatacopy.data = numpy.exp(
+                    - numpy.abs(timestampdatacopy.data) / self.l2)
+                similarity[i:i + entry_predicting] = similarity[
+                                                     i:i + entry_predicting].multiply(
+                    timestampdatacopy)
 
         rows = np.unique(similarity.nonzero()[0])
         for rowindex in rows:
@@ -148,8 +155,16 @@ class STAN:
             item_score = neighbour_session.sum(0).A1
 
             top_k_item = np.argpartition(item_score, -self.k)[-self.k:]
+            top_k_item = np.array(list(filter(lambda x:item_score[x] != 0, top_k_item))) # filter out zero valued items
             top_k_item = top_k_item[np.argsort(-item_score[top_k_item])]
             top_k_value = item_score[top_k_item]
+
+            if len(top_k_item) < self.k:
+                popular_item,popular_value = self.popularity.predict(self.current_session[session_idx],[])[0]
+                popular_item = popular_item[:self.k - len(top_k_item)]
+                popular_value = popular_value[:self.k - len(top_k_item)]
+                top_k_item = np.append(top_k_item,popular_item)
+                top_k_value = np.append(top_k_value,popular_value)
 
             yield (top_k_item, top_k_value)
             continue
