@@ -215,7 +215,6 @@ class STAN:
 
         neighbours = self.find_neighbours()
         scores = list(self.score_items(neighbours))
-        raise Exception
         return scores
 
     def tostring(self):
