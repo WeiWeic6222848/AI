@@ -26,18 +26,17 @@ class Popularity():
         # X = X.multiply(X >= 3)  # look only at items with rating more than 3
         items = list(X.nonzero()[1])
         sorted_scores = Counter(items).most_common()
-        self.sorted_scores_ = \
+        self.sorted_scores = \
             [(item, score) for item, score in
              sorted_scores]
+        self.items, self.values = zip(*self.sorted_scores[: self.K])
         return self
 
     def predict(self, X, timestamp):
-        items, values = zip(*self.sorted_scores_[: self.K])
-
         predictions = []
 
         for _ in range(X.shape[0]):
-            predictions.append((items, values))
+            predictions.append((self.items, self.values))
 
         return predictions
 
@@ -68,7 +67,7 @@ class STAN:
         self.session = session.copy()
         self.session.data[self.session.data != 1] = 1
         self.session_timestamp = session_timestamp
-        self.popularity.fit(session,session_timestamp)
+        self.popularity.fit(session, session_timestamp)
         return self
 
     def find_neighbours(self):
@@ -82,12 +81,28 @@ class STAN:
 
         if self.factor2 is True:
             # loop over each entry since otherwise it's too large
-            entry_predicting = 1
+            # 20000 entry is around 10gig memory requirement
+            # 10000 should be only ~2-3 gig memory requirement
+            entry_predicting = 10000
 
-            timestampdata = self.session_timestamp.transpose().tocsr()
+            # transforming to coo to speed it up
+            timestampdatacoo = self.session_timestamp.tocoo()
+
+            timestampdata = scipy.sparse.hstack(
+                [timestampdatacoo for _ in range(
+                    entry_predicting)])
+
+            timestampdata = timestampdata.transpose().tocsr()
 
             for i in range(0, self.current_session.shape[0], entry_predicting):
+
                 # last iteration where entry is less
+                if similarityNorm[i:i + entry_predicting].shape[
+                    0] != entry_predicting:
+                    timestampdata = scipy.sparse.hstack(
+                        [timestampdatacoo for _ in range(
+                            similarityNorm[i:i + entry_predicting].shape[0])]) \
+                        .transpose().tocsr()
 
                 timestampdatacopy = timestampdata.multiply(
                     similarityNorm[i:i + entry_predicting]).tocsr()
@@ -103,6 +118,7 @@ class STAN:
 
                 timestampdatacopy.data = numpy.exp(
                     - numpy.abs(timestampdatacopy.data) / self.l2)
+
                 similarity[i:i + entry_predicting] = similarity[
                                                      i:i + entry_predicting].multiply(
                     timestampdatacopy)
@@ -155,16 +171,20 @@ class STAN:
             item_score = neighbour_session.sum(0).A1
 
             top_k_item = np.argpartition(item_score, -self.k)[-self.k:]
-            top_k_item = np.array(list(filter(lambda x:item_score[x] != 0, top_k_item))) # filter out zero valued items
+            top_k_item = np.array(
+                list(filter(lambda x: item_score[x] != 0, top_k_item)),
+                dtype=np.int)  # filter out zero valued items
             top_k_item = top_k_item[np.argsort(-item_score[top_k_item])]
             top_k_value = item_score[top_k_item]
 
             if len(top_k_item) < self.k:
-                popular_item,popular_value = self.popularity.predict(self.current_session[session_idx],[])[0]
+                popular_item, popular_value = \
+                    self.popularity.predict(self.current_session[session_idx],
+                                            [])[0]
                 popular_item = popular_item[:self.k - len(top_k_item)]
                 popular_value = popular_value[:self.k - len(top_k_item)]
-                top_k_item = np.append(top_k_item,popular_item)
-                top_k_value = np.append(top_k_value,popular_value)
+                top_k_item = np.append(top_k_item, popular_item)
+                top_k_value = np.append(top_k_value, popular_value)
 
             yield (top_k_item, top_k_value)
             continue
