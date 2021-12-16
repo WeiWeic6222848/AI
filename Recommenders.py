@@ -185,10 +185,12 @@ class STAN:
                 popular_item, popular_value = \
                     self.popularity.predict(self.current_session[session_idx],
                                             [])[0]
-                popular_item = popular_item[:self.k - len(top_k_item)]
-                popular_value = popular_value[:self.k - len(top_k_item)]
                 top_k_item = np.append(top_k_item, popular_item)
-                top_k_value = np.append(top_k_value, popular_value)
+
+                # uniquify items and resort for new item value list
+                top_k_item = np.unique(top_k_item)[:self.k]
+                top_k_item = top_k_item[np.argsort(-item_score[top_k_item])]
+                top_k_value = item_score[top_k_item]
 
             yield (top_k_item, top_k_value)
             continue
