@@ -89,23 +89,22 @@ class STAN:
                 (0, similarity.shape[1]))
 
             # transforming to coo to speed it up
-            timestampdatacoo = self.session_timestamp.tocoo()
+            timestampdatacoo = self.session_timestamp.transpose().tocoo()
 
-            timestampdata = scipy.sparse.hstack(
+            timestampdata = scipy.sparse.vstack(
                 [timestampdatacoo for _ in range(
-                    entry_predicting)])
+                    entry_predicting)]).tocsr()
 
-            timestampdata = timestampdata.transpose().tocsr()
 
             for i in range(0, self.current_session.shape[0], entry_predicting):
 
                 # last iteration where entry is less
                 if similarityNorm[i:i + entry_predicting].shape[
                     0] != entry_predicting:
-                    timestampdata = scipy.sparse.hstack(
+                    timestampdata = scipy.sparse.vstack(
                         [timestampdatacoo for _ in range(
                             similarityNorm[i:i + entry_predicting].shape[0])]) \
-                        .transpose().tocsr()
+                        .tocsr()
 
                 timestampdatacopy = timestampdata.multiply(
                     similarityNorm[i:i + entry_predicting]).tocsr()
@@ -216,6 +215,7 @@ class STAN:
 
         neighbours = self.find_neighbours()
         scores = list(self.score_items(neighbours))
+        raise Exception
         return scores
 
     def tostring(self):

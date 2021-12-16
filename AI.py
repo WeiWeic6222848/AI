@@ -29,9 +29,19 @@ def readCsv(fold):
         f'./folds/{fold}/validate.csv').drop(
         ['review'], axis=1)
 
-    # get the year from year data
+    # get the year from data
     df['rate_year'] = pandas.DatetimeIndex(df['date']).year
     dftest['rate_year'] = pandas.DatetimeIndex(dftest['date']).year
+
+    # get the month from data
+    df['rate_month'] = pandas.DatetimeIndex(df['date']).month
+    dftest['rate_month'] = pandas.DatetimeIndex(dftest['date']).month
+
+    # get season from month data
+    # 1,2,3 -> season 1.
+    # 4,5,6 -> season 2. etc.
+    df['rate_season'] = (df['rate_month'] - 1) // 3 + 1
+    dftest['rate_season'] = (dftest['rate_month'] - 1) // 3 + 1
 
     # session_id defined as user_id + rate_year and each session item contains recipes the user rated,
     # filter out session length with only 1 rated recipe
@@ -42,7 +52,8 @@ def readCsv(fold):
 
     # serialize session id to continous integer for matrix initialization
     df['session_id'] = pd.factorize(
-        pd._libs.lib.fast_zip([df['user_id'].values, df['rate_year'].values]))[0]
+        pd._libs.lib.fast_zip([df['user_id'].values, df['rate_year'].values]))[
+        0]
     dftest['session_id'] = pd.factorize(
         pd._libs.lib.fast_zip(
             [dftest['user_id'].values, dftest['rate_year'].values]))[0]
@@ -52,6 +63,7 @@ def readCsv(fold):
         pd.concat([df['recipe_id'], dftest['recipe_id']]))
     df['recipe_id_serialized'] = codes[:len(df)]
     dftest['recipe_id_serialized'] = codes[len(df):]
+    del codes
 
     # convert date of review to timestamp for test/train split as well as data purposes
     df['timestamp'] = df['date'].apply(
@@ -69,8 +81,15 @@ def readCsv(fold):
     dftest['item_index'] = dftest.groupby(
         'session_id').cumcount() + 1
 
-    return df, dftest, recipe_map
+    #drop all unnecessary informations
+    df = df.drop(
+        ['recipe_id', 'date', 'rating', 'count_user', 'count_item',
+         'rate_year', 'rate_month', 'rate_season'], axis=1)
+    dftest = dftest.drop(
+        ['recipe_id', 'date', 'rating', 'count_user', 'count_item',
+         'rate_year', 'rate_month', 'rate_season'], axis=1)
 
+    return df, dftest, recipe_map
 
 
 stats_dict = {}
@@ -80,7 +99,7 @@ for model in base_models:
 # read the dataset
 for fold in os.listdir('folds'):
 
-    #if fold == "fold_2":
+    # if fold == "fold_2":
     #    break
 
     print(f"Testing for {fold}")
@@ -142,7 +161,7 @@ for fold in os.listdir('folds'):
 
     # Calcultae metrics Recall, MRR and NDCG for each model
     for model in base_models:
-        model.fit(train_session_matrix,train_timestamp_matrix)
+        model.fit(train_session_matrix, train_timestamp_matrix)
 
         print("MODEL = ", model.tostring())
         testing_size = test_session_matrix.get_shape()[0]
