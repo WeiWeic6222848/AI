@@ -52,11 +52,11 @@ def readCsv(fold):
 
     # serialize session id to continous integer for matrix initialization
     df['session_id'] = pd.factorize(
-        pd._libs.lib.fast_zip([df['user_id'].values, df['rate_year'].values]))[
+        pd._libs.lib.fast_zip([df['user_id'].values]))[
         0]
     dftest['session_id'] = pd.factorize(
         pd._libs.lib.fast_zip(
-            [dftest['user_id'].values, dftest['rate_year'].values]))[0]
+            [dftest['user_id'].values]))[0]
 
     # we keep the map of recipe to retrieve the original recipe information to see if recommendation was good
     codes, recipe_map = pd.factorize(
