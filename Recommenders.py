@@ -73,7 +73,8 @@ class STAN:
     def find_neighbours(self):
         similarity = sklearn.metrics.pairwise.cosine_similarity(
             self.current_session_weight_cache,
-            self.session)
+            self.session, dense_output=False)
+
         similarity = scipy.sparse.csr_matrix(similarity)
 
         similarityNorm = similarity.copy()
@@ -83,7 +84,9 @@ class STAN:
             # loop over each entry since otherwise it's too large
             # 20000 entry is around 10gig memory requirement
             # 10000 should be only ~2-3 gig memory requirement
-            entry_predicting = 10000
+            entry_predicting = 5000
+            timestamp_weights = scipy.sparse.lil_matrix(
+                (0, similarity.shape[1]))
 
             # transforming to coo to speed it up
             timestampdatacoo = self.session_timestamp.tocoo()
@@ -119,9 +122,11 @@ class STAN:
                 timestampdatacopy.data = numpy.exp(
                     - numpy.abs(timestampdatacopy.data) / self.l2)
 
-                similarity[i:i + entry_predicting] = similarity[
-                                                     i:i + entry_predicting].multiply(
-                    timestampdatacopy)
+                timestamp_weights = scipy.sparse.vstack(
+                    [timestamp_weights, timestampdatacopy])
+
+            timestamp_weights = timestamp_weights.tocsr()
+            similarity = similarity.multiply(timestamp_weights)
 
         rows = np.unique(similarity.nonzero()[0])
         for rowindex in rows:
@@ -145,8 +150,8 @@ class STAN:
                 neighbours_normalized):
 
             if self.factor3 is True:
-                neighbour_session = self.sequence_info.multiply(
-                    neighbour_session_map.transpose())
+                nzcol = neighbour_session_map.nonzero()[1]
+                neighbour_session = self.sequence_info[nzcol]
 
                 common_items = self.current_session[session_idx].multiply(
                     neighbour_session)
@@ -163,7 +168,7 @@ class STAN:
                 neighbour_session.data = numpy.exp(
                     - np.abs(neighbour_session.data) / self.l3)
                 neighbour_session = neighbour_session.multiply(
-                    neighbours[session_idx].transpose())
+                    neighbours[session_idx, nzcol].transpose())
             else:
                 neighbour_session = self.session.multiply(
                     neighbours[session_idx].transpose())
