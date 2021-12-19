@@ -1,8 +1,6 @@
 import os
 import random
-
 import numpy as np
-
 from OLD import STANOLD, matrix_to_list
 from Recommenders import *
 import pandas
@@ -12,10 +10,10 @@ import datetime
 
 base_models = [
     Popularity(),
-    STAN(factor1=True, l1=6,
-        factor2=True, l2=6000 * 365 * 24 * 3600, factor3=True, l3=6),
-    STANOLD(factor1=True, l1=6,
-            factor2=True, l2=6000 * 365 * 24 * 3600, factor3=True, l3=6)
+    STAN(factor1=True, l1=10,
+        factor2=True, l2=6000 * 24 * 3600, factor3=True, l3=19),
+    STANOLD(factor1=True, l1=10,
+           factor2=True, l2=6000 * 24 * 3600, factor3=True, l3=19)
 ]
 
 # recipe = pandas.read_csv(
@@ -26,9 +24,8 @@ def readCsv(fold):
         f'./folds/{fold}/train.csv').drop(
         ['review'], axis=1)
     dftest = pandas.read_csv(
-        f'./folds/{fold}/validate.csv').drop(
+        f'./folds/{fold}/test.csv').drop(
         ['review'], axis=1)
-
     # get the year from data
     df['rate_year'] = pandas.DatetimeIndex(df['date']).year
     dftest['rate_year'] = pandas.DatetimeIndex(dftest['date']).year

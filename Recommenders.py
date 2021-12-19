@@ -5,9 +5,9 @@ import numpy
 import numpy as np
 import scipy
 import sklearn
-from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.metrics.pairwise import cosine_similarity,euclidean_distances
 from scipy import sparse
-
+import pandas as pd
 
 def max_n(row_data, row_indices, n):
     i = row_data.argsort()[-n:]
@@ -70,12 +70,23 @@ class STAN:
         self.popularity.fit(session, session_timestamp)
         return self
 
-    def find_neighbours(self):
-        similarity = sklearn.metrics.pairwise.cosine_similarity(
-            self.current_session_weight_cache,
-            self.session, dense_output=False)
 
-        similarity = scipy.sparse.csr_matrix(similarity)
+    def find_neighbours(self):
+        l1 = self.current_session_sequence.max(axis=1).tocsr().astype(np.float64)
+        l2 = self.sequence_info.max(axis=1).tocsr().astype(np.float64)
+        l1[l1.nonzero()] = 1 / np.sqrt(l1[l1.nonzero()])
+        l2[l2.nonzero()] = 1 / np.sqrt(l2[l2.nonzero()])
+        l1 = self.current_session.multiply(l1).multiply(self.current_session_weight_cache)
+        l2 = self.session.multiply(l2)
+        similarity = l1 * l2.transpose()
+        del l1
+        del l2
+
+        #similarity = sklearn.metrics.pairwise.cosine_similarity(
+        #     self.current_session,
+        #     self.session, dense_output=False)
+        #similarity = scipy.sparse.csr_matrix(similarity)
+        #similarity[similarity.nonzero()] = numpy.exp(- similarity[similarity.nonzero()])
 
         similarityNorm = similarity.copy()
         similarityNorm[similarityNorm.nonzero()] = 1
@@ -120,7 +131,6 @@ class STAN:
 
                 timestampdatacopy.data = numpy.exp(
                     - numpy.abs(timestampdatacopy.data) / self.l2)
-
                 timestamp_weights = scipy.sparse.vstack(
                     [timestamp_weights, timestampdatacopy])
 
@@ -181,6 +191,7 @@ class STAN:
             top_k_item = top_k_item[np.argsort(-item_score[top_k_item])]
             top_k_value = item_score[top_k_item]
 
+
             if len(top_k_item) < self.k:
                 popular_item, popular_value = \
                     self.popularity.predict(self.current_session[session_idx],
@@ -188,9 +199,10 @@ class STAN:
                 top_k_item = np.append(top_k_item, popular_item)
 
                 # uniquify items and resort for new item value list
-                top_k_item = np.unique(top_k_item)[:self.k]
+                top_k_item = pd.unique(top_k_item)[:self.k]
                 top_k_item = top_k_item[np.argsort(-item_score[top_k_item])]
                 top_k_value = item_score[top_k_item]
+
 
             yield (top_k_item, top_k_value)
             continue
