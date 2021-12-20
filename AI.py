@@ -9,11 +9,11 @@ import datetime
 
 
 base_models = [
-    Popularity(),
+    # Popularity(),
     STAN(factor1=True, l1=10,
-        factor2=True, l2=6000 * 24 * 3600, factor3=True, l3=19),
-    STANOLD(factor1=True, l1=10,
-           factor2=True, l2=6000 * 24 * 3600, factor3=True, l3=19)
+        factor2=True, l2=5000 * 24 * 3600, factor3=True, l3=19),
+    # STANOLD(factor1=True, l1=10,
+    #        factor2=True, l2=5000 * 24 * 3600, factor3=True, l3=19)
 ]
 
 # recipe = pandas.read_csv(
@@ -194,6 +194,27 @@ for fold in os.listdir('folds'):
                 if rank <= 5:
                     R_5 += 1
                     NDCG_5 += 1 / math.log(rank + 1, 2)
+
+                    # print("past recipes:")
+                    # for col in test_session_matrix[i].nonzero()[1]:
+                    #     actualrecipe = recipe_map[col]
+                    #     print(recipe[recipe['id'] == actualrecipe][
+                    #               'name'].tolist()[0],
+                    #           end=",\n")
+                    # print("\n")
+                    # print("recommended recipes:")
+                    # for col in items[:10]:
+                    #     actualrecipe = recipe_map[col]
+                    #     print(recipe[recipe['id'] == actualrecipe][
+                    #               'name'].tolist()[0],
+                    #           end=",\n")
+                    # print("\n")
+                    # print("actual next recipe:")
+                    # actualrecipe = recipe_map[test_predict[i]]
+                    # print(recipe[recipe['id'] == actualrecipe][
+                    #           'name'].tolist()[
+                    #           0])
+                    # print("\n\n\n\n\n")
 
                 if rank <= 10:
                     R_10 += 1
