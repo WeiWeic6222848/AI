@@ -1,9 +1,0 @@
-old_implementation:
-user_session = ~330 second
-(user,year)_session = ~ 160 second
-(user,year,season)_session = ~ 90 second
-
-new_implementation:
-user_session = ~ 95 second
-(user,year)_session = ~ 165 second
-(user,year,season)_session = ~ 235 second
